@@ -90,44 +90,54 @@ bayes_split_cp <- function(Y, K, alpha, error_prob){
 }
 
 
+# Function to calculate Distance to Average (DTA) Conformity score
+dta_cs <- function(y_bar, K) {
+  
+  scores <- numeric(K)
+  
+  # Calculate score for each possible category
+  for (i in 1:K) {
+    response_vec <- rep(0, K)
+    response_vec[i] <- 1
+    scores[i] <- norm(response_vec - y_bar, type = "2")
+  }
+  
+  return(scores)
+}
+
+
 # Function to implement split cp using DTA Conformity Score |y_i - y_bar|
 dta_split_cp <- function(Y, K, error_prob){
   
-  # Splitting into 70% training and 30% calibration sets
-  #train_index <- sample(1:nrow(Y), size = ceiling(0.7 * nrow(Y)))
-  #training_set <- Y[train_index,]
   calibration_set <- Y
   
   n <- nrow(calibration_set)
   y_bar <- colSums(calibration_set) / n
+  category_scores <- dta_cs(y_bar, K)
   
   # Calculate conformity scores for each observation in the calibration set
   conformity_scores <- numeric(n)
   for (i in 1:n) {
-    response_vec <- calibration_set[i,]
-    conformity_scores[i] <- norm(response_vec - y_bar , type = "2")
+    category_num <- which(calibration_set[i,] == 1)
+    conformity_scores[i] <- category_scores[category_num]
   }
   
   # Calculate q_hat
   q_hat_index <- min(n, ceiling((n + 1) * (1 - error_prob)))
   q_hat <- sort(conformity_scores)[q_hat_index]
-  #q_hat_quantile <- ceiling((n+1) * (1-error_prob)) / n
-  #q_hat <- quantile(conformity_scores, probs = q_hat_quantile)
   
   # Generate prediction set
   prediction_set <- matrix(0, nrow = 0, ncol = K)
   
-  # Iterate through each category
+  # Iterate through each category and check against q_hat
   for (i in 1:K) {
-    # Generate response vector representing ith category
-    response_vec <- rep(0, K)
-    response_vec[i] <- 1
-    
-    # Calculate conformity score as ||y_i - y_bar||
-    score <- norm(response_vec-y_bar , type = "2")
+    # Use pre-calculated score
+    score <- category_scores[i]
     
     # If score is less than or equal to q_hat, add response_vec to prediction set
     if (score <= q_hat) {
+      response_vec <- rep(0, K)
+      response_vec[i] <- 1
       prediction_set <- rbind(prediction_set, response_vec)
     }
   }
