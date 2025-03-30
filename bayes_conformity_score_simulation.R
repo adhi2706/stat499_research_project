@@ -141,7 +141,7 @@ dta_split_cp <- function(Y, category_count, error_prob){
 ##### Validity Test #####
 
 # Simulation to test Validity of Bayes-Optimal Conformal Prediction
-validity_simulation <- function(category_lim, num_test_obs, error_prob, n) {
+validity_simulation <- function(category_lim, error_prob, n) {
   
   coverage_rates <- numeric()
   
@@ -162,16 +162,16 @@ validity_simulation <- function(category_lim, num_test_obs, error_prob, n) {
       result <- bayes_split_cp(Y, K, alpha, error_prob)
       #result <- dta_split_cp(Y, K, error_prob)
       
-      test_data <- t(sapply(1:num_test_obs, function(i) generate_one_hot(K, rand_weights)))
+      pred_set <- result$prediction_set
       
-      # Check coverage for test data
-      coverage_count <- 0
-      for (j in 1:nrow(test_data)) {
-        coverage <- any(apply(result$prediction_set, 1, function(pred_vec) 
-          all(pred_vec == test_data[j,])))
-        coverage_count <- coverage_count + as.numeric(coverage)
+      # Calculate theoretical coverage based on weights
+      pred_coverage <- 0
+      for (i in 1:nrow(pred_set)) {
+        category_num <- which(pred_set[i,] == 1)
+        pred_coverage <- pred_coverage + rand_weights[category_num]
       }
-      coverages[sim_rep] <- coverage_count / num_test_obs
+      
+      coverages[sim_rep] <- pred_coverage
     }
     
     coverage_rates[K-2] <- mean(coverages)
@@ -188,7 +188,7 @@ num_test_obs <- 500
 # Y <- t(sapply(1:n, function(i) generate_one_hot(k)))
 
 # Run the simulation
-results <- validity_simulation(category_lim, num_test_obs, error_prob = epsilon, n)
+results <- validity_simulation(category_lim, error_prob = epsilon, n)
 
 # Plot the results
 plot(3:category_lim, results, 
@@ -265,4 +265,3 @@ category_lim <- 20
 # Run the simulation
 compare_results <- comparision_by_category(category_lim, error_prob = epsilon, n)
 plot_prediction_set_sizes(compare_results, category_lim)
-
