@@ -201,6 +201,27 @@ plot(3:category_lim, results,
 abline(h = 1 - epsilon, col = 'red', lty = 2)
 
 
+# Plot coverage rates for different sizes of calibration set
+category_lim <- 20
+epsilon <- 0.10
+n_values <- c(500, 1000, 2000)  # Different values of n
+colors <- c("blue", "green", "black")  # Colors for the lines
+
+plot(NULL, xlim = c(3, category_lim), ylim = c(0.85, 1), 
+     xlab = 'Number of Categories (K)', 
+     ylab = 'Coverage Rate', 
+     main = 'Coverage rate of split conformal prediction using Bayes Conformity Score')
+
+abline(h = 1 - epsilon, col = 'red', lty = 2)  # Target coverage rate
+
+for (i in seq_along(n_values)) {
+  n <- n_values[i]
+  results <- validity_simulation(category_lim, error_prob = epsilon, n)
+  lines(3:category_lim, results, type = 'b', col = colors[i], pch = 16)
+}
+
+legend("bottomright", legend = paste("n =", n_values), col = colors, lty = 1, pch = 16)
+
 
 ##### Comparison of size of prediction set from different conformity scores #####
 
