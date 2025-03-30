@@ -28,19 +28,21 @@ generate_weights <- function(k){
 
 
 # Function to calculate Bayes Conformity score
-bayes_cs <- function(calibration_set_size, observed_counts, response_vec, alpha) {
-  # Find the category number (position of 1 in the one-hot coded response vector)
-  category_num <- which(response_vec == 1)
+bayes_cs <- function(calibration_set_size, observed_counts, K, alpha) {
   
-  # Calculate the Bayesian conformity score
-  score <- (alpha[category_num] + observed_counts[category_num]) / (calibration_set_size + sum(alpha))
+  scores <- numeric(K)
   
-  return(score)
+  # Calculate score for each possible category
+  for (category_num in 1:K) {
+    scores[category_num] <- (alpha[category_num] + observed_counts[category_num]) / 
+      (calibration_set_size + sum(alpha))
+  }
+  return(scores)
 }
 
 
 # Function to implement split cp using Bayes Conformity Score
-bayes_split_cp <- function(Y, category_count, alpha, error_prob){
+bayes_split_cp <- function(Y, K, alpha, error_prob){
   
   # Splitting into 70% training and 30% calibration sets
   #train_index <- sample(1:nrow(Y), size = ceiling(0.7 * nrow(Y)))
@@ -49,13 +51,13 @@ bayes_split_cp <- function(Y, category_count, alpha, error_prob){
   
   n <- nrow(calibration_set)
   observed_counts <- colSums(calibration_set)
+  category_scores <- bayes_cs(calibration_set_size = n, observed_counts, K, alpha)
   
   # Calculate conformity scores for each observation in the calibration set
   conformity_scores <- numeric(n)
   for (i in 1:n) {
-    response_vec <- calibration_set[i,]
-    conformity_scores[i] <- bayes_cs(calibration_set_size = n, observed_counts, 
-                                     response_vec, alpha)
+    category_num <- which(calibration_set[i,] == 1)
+    conformity_scores[i] <- category_scores[category_num]
   }
   
   # Calculate q_hat
@@ -64,17 +66,16 @@ bayes_split_cp <- function(Y, category_count, alpha, error_prob){
   
   
   # Generate prediction set
-  prediction_set <- matrix(0, nrow = 0, ncol = category_count)
+  prediction_set <- matrix(0, nrow = 0, ncol = K)
   
   # Iterate through each category
-  for (i in 1:category_count) {
+  for (i in 1:K) {
     # Generate response vector representing ith category
-    response_vec <- rep(0, category_count)
+    response_vec <- rep(0, K)
     response_vec[i] <- 1
     
     # Calculate Bayes conformity score
-    score <- bayes_cs(calibration_set_size = n, observed_counts, 
-                      response_vec, alpha)
+    score <- category_scores[i]
     
     # If score is greater than or equal to q_hat, add response_vec to prediction set
     if (score >= q_hat) {
@@ -90,7 +91,7 @@ bayes_split_cp <- function(Y, category_count, alpha, error_prob){
 
 
 # Function to implement split cp using DTA Conformity Score |y_i - y_bar|
-dta_split_cp <- function(Y, category_count, error_prob){
+dta_split_cp <- function(Y, K, error_prob){
   
   # Splitting into 70% training and 30% calibration sets
   #train_index <- sample(1:nrow(Y), size = ceiling(0.7 * nrow(Y)))
@@ -114,12 +115,12 @@ dta_split_cp <- function(Y, category_count, error_prob){
   #q_hat <- quantile(conformity_scores, probs = q_hat_quantile)
   
   # Generate prediction set
-  prediction_set <- matrix(0, nrow = 0, ncol = category_count)
+  prediction_set <- matrix(0, nrow = 0, ncol = K)
   
   # Iterate through each category
-  for (i in 1:category_count) {
+  for (i in 1:K) {
     # Generate response vector representing ith category
-    response_vec <- rep(0, category_count)
+    response_vec <- rep(0, K)
     response_vec[i] <- 1
     
     # Calculate conformity score as ||y_i - y_bar||
@@ -151,7 +152,7 @@ validity_simulation <- function(category_lim, error_prob, n) {
     coverages <- numeric()
     
     # Repeat 200 times for fixed K
-    for (sim_rep in 1:200) {
+    for (sim_rep in 1:500) {
       
       alpha <- runif(K, min = 0.1, max = 10)
       #alpha <- (rep(1,K))
