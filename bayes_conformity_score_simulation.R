@@ -27,78 +27,74 @@ generate_weights <- function(k){
 }
 
 
-# Function to calculate Bayes Conformity score
-bayes_cs <- function(calibration_set_size, observed_counts, K, alpha) {
+# Function to calculate Bayes Conformity scores
+# Returns vector of n+1 scores
+bayes_cs <- function(y_candidate, Y_calib, K, alpha) {
   
-  scores <- numeric(K)
+  combined_data <- rbind(Y_calib, y_candidate)
+  n <- nrow(Y_calib)
   
-  # Calculate score for each possible category
-  for (category_num in 1:K) {
-    scores[category_num] <- (alpha[category_num] + observed_counts[category_num]) / 
-      (calibration_set_size + sum(alpha))
+  scores <- numeric(n + 1)
+  
+  for (i in 1:(n + 1)) {
+    leave_one_out <- combined_data[-i, ]
+    observed_counts <- colSums(leave_one_out)
+    category_i <- which(combined_data[i, ] == 1)
+    
+    scores[i] <- (alpha[category_i] + observed_counts[category_i]) / 
+      (nrow(leave_one_out) + sum(alpha))
   }
+  
   return(scores)
 }
 
-
-# Function to implement split cp using Bayes Conformity Score
-bayes_split_cp <- function(Y, K, alpha, error_prob){
+# Function to implement full cp using Bayes Conformity Score
+bayes_full_cp <- function(Y_calib, K, alpha, error_prob) {
+  n <- nrow(Y_calib)
   
-  # Splitting into 70% training and 30% calibration sets
-  #train_index <- sample(1:nrow(Y), size = ceiling(0.7 * nrow(Y)))
-  #training_set <- Y[train_index,]
-  calibration_set <- Y
-  
-  n <- nrow(calibration_set)
-  observed_counts <- colSums(calibration_set)
-  category_scores <- bayes_cs(calibration_set_size = n, observed_counts, K, alpha)
-  
-  # Calculate conformity scores for each observation in the calibration set
-  conformity_scores <- numeric(n)
-  for (i in 1:n) {
-    category_num <- which(calibration_set[i,] == 1)
-    conformity_scores[i] <- category_scores[category_num]
-  }
-  
-  # Calculate q_hat
-  q_hat_index <- max(1, floor((n + 1) * error_prob))
-  q_hat <- sort(conformity_scores)[q_hat_index]
-  
-  
-  # Generate prediction set
   prediction_set <- matrix(0, nrow = 0, ncol = K)
   
-  # Iterate through each category
+  p_values <- numeric(K)
+  
   for (i in 1:K) {
-    # Generate response vector representing ith category
-    response_vec <- rep(0, K)
-    response_vec[i] <- 1
     
-    # Calculate Bayes conformity score
-    score <- category_scores[i]
+    y_candidate <- rep(0, K)
+    y_candidate[i] <- 1
     
-    # If score is greater than or equal to q_hat, add response_vec to prediction set
-    if (score >= q_hat) {
-      prediction_set <- rbind(prediction_set, response_vec)
+    scores <- bayes_cs(y_candidate, Y_calib, K, alpha)
+    
+    candidate_score <- scores[n + 1]  # c_{n+1}(y_{n+1})
+    p_i <- sum(scores <= candidate_score) / (n + 1)
+    p_values[i] <- p_i
+    
+    # If p_i > alpha, add to prediction set
+    if (p_i > error_prob) {
+      prediction_set <- rbind(prediction_set, y_candidate)
     }
   }
   
-  return(list(calibration_set = calibration_set,
-              conformity_scores = conformity_scores,
+  return(list(calibration_set = Y_calib,
               prediction_set = prediction_set,
-              q_hat = q_hat))
+              p_values = p_values))
 }
 
 
 # Function to calculate Distance to Average (DTA) Conformity score
-dta_cs <- function(y_bar, K) {
+dta_cs <- function(y_candidate, Y_calib, K) {
   
-  scores <- numeric(K)
+  combined_data <- rbind(Y_calib, y_candidate)
+  n <- nrow(Y_calib)
   
-  # Calculate score for each possible category
-  for (i in 1:K) {
+  scores <- numeric(n + 1)
+  
+  for (i in 1:(n + 1)) {
+    
+    leave_one_out <- combined_data[-i, ]
+    y_bar <- colSums(leave_one_out) / n
+    
+    category_i <- which(combined_data[i, ] == 1)
     response_vec <- rep(0, K)
-    response_vec[i] <- 1
+    response_vec[category_i] <- 1
     scores[i] <- norm(response_vec - y_bar, type = "2")
   }
   
@@ -106,73 +102,56 @@ dta_cs <- function(y_bar, K) {
 }
 
 
-# Function to implement split cp using DTA Conformity Score |y_i - y_bar|
-dta_split_cp <- function(Y, K, error_prob){
+# Function to implement full cp using DTA Conformity Score |y_i - y_bar|
+dta_full_cp <- function(Y_calib, K, error_prob) {
   
-  calibration_set <- Y
+  n <- nrow(Y_calib)
   
-  n <- nrow(calibration_set)
-  y_bar <- colSums(calibration_set) / n
-  category_scores <- dta_cs(y_bar, K)
-  
-  # Calculate conformity scores for each observation in the calibration set
-  conformity_scores <- numeric(n)
-  for (i in 1:n) {
-    category_num <- which(calibration_set[i,] == 1)
-    conformity_scores[i] <- category_scores[category_num]
-  }
-  
-  # Calculate q_hat
-  q_hat_index <- min(n, ceiling((n + 1) * (1 - error_prob)))
-  q_hat <- sort(conformity_scores)[q_hat_index]
-  
-  # Generate prediction set
   prediction_set <- matrix(0, nrow = 0, ncol = K)
+  p_values <- numeric(K)
   
-  # Iterate through each category and check against q_hat
   for (i in 1:K) {
-    # Use pre-calculated score
-    score <- category_scores[i]
     
-    # If score is less than or equal to q_hat, add response_vec to prediction set
-    if (score <= q_hat) {
-      response_vec <- rep(0, K)
-      response_vec[i] <- 1
-      prediction_set <- rbind(prediction_set, response_vec)
+    y_candidate <- rep(0, K)
+    y_candidate[i] <- 1
+    
+    scores <- dta_cs(y_candidate, Y_calib, K)
+    
+    candidate_score <- scores[n + 1]  # c_{n+1}(y_{n+1})
+    p_i <- sum(scores >= candidate_score) / (n + 1)
+    p_values[i] <- p_i
+    
+    # If p_i > alpha, add to prediction set
+    if (p_i > error_prob) {
+      prediction_set <- rbind(prediction_set, y_candidate)
     }
   }
   
-  return(list(calibration_set = calibration_set,
-              conformity_scores = conformity_scores,
+  return(list(calibration_set = Y_calib,
               prediction_set = prediction_set,
-              q_hat = q_hat))
+              p_values = p_values))
 }
 
 
-##### Validity Test #####
-
-# Simulation to test Validity of Bayes-Optimal Conformal Prediction
 validity_simulation <- function(category_lim, error_prob, n) {
-  
   coverage_rates <- numeric()
   
   # Iterate through different numbers of categories
   for (K in 3:category_lim) {
-    
     coverages <- numeric()
     
-    # Repeat 500 MC simulations for fixed K
-    for (sim_rep in 1:500) {
+    # Repeat 1000 MC simulations for fixed K
+    for (sim_rep in 1:1000) {
       
-      alpha <- runif(K, min = 0.1, max = 10)
-      #alpha <- (rep(1,K))
+      # Generate alpha for Dirichlet prior
+      alpha <- runif(K, min=0.1, max=10)
+      
       rand_weights <- generate_weights(K)
-      Y <- t(sapply(1:n, function(i) generate_one_hot(K, rand_weights)))
+      Y_cal <- t(sapply(1:n, function(i) generate_one_hot(K, rand_weights)))
       
-      # Run Bayes split conformal prediction
-      result <- bayes_split_cp(Y, K, alpha, error_prob)
-      #result <- dta_split_cp(Y, K, error_prob)
-      
+      # Run Bayes full conformal prediction
+      result <- bayes_full_cp(Y_cal, K, alpha, error_prob)
+      #result <- dta_full_cp(Y_cal, K, error_prob)
       pred_set <- result$prediction_set
       
       # Calculate theoretical coverage based on weights
@@ -195,13 +174,13 @@ validity_simulation <- function(category_lim, error_prob, n) {
 # Plot coverage rates for different sizes of calibration set
 category_lim <- 20
 epsilon <- 0.10
-n_values <- c(500, 1000, 2000)
+n_values <- c(50, 100, 200)
 colors <- c("blue", "green", "black")
 
 plot(NULL, xlim = c(3, category_lim), ylim = c(0.85, 1), 
      xlab = 'Number of Categories (K)', 
      ylab = 'Coverage Rate', 
-     main = 'Coverage rate of split conformal prediction using Bayes Conformity Score')
+     main = 'Coverage Rate of Full conformal prediction using Bayes Conformity Score')
 
 abline(h = 1 - epsilon, col = 'red', lty = 2)
 
@@ -216,7 +195,7 @@ legend("bottomright", legend = paste("n =", n_values), col = colors, lty = 1, pc
 
 # Checking coverage for large K
 
-n <- 3000 # Number of observations in calibration set
+n <- 50 # Number of observations in calibration set
 epsilon <- 0.10 # User-specified error probability
 category_lim <- 50
 # k <- 15 # Number of categories
@@ -231,7 +210,7 @@ plot(3:category_lim, results,
      col = "blue",
      xlab = 'Number of Categories (K)', 
      ylab = 'Coverage Rate', 
-     main = 'Coverage rate of split conformal prediction using Bayes Conformity Score',
+     main = 'Coverage Rate of Full conformal prediction using Bayes Conformity Score',
      xlim = c(20, category_lim),
      ylim = c(0.85, 1))
 abline(h = 1 - epsilon, col = 'red', lty = 2)
@@ -256,8 +235,8 @@ comparision_by_category <- function(category_lim, error_prob, n) {
       class_prob <- rdirichlet(1, alpha)[1,]
       Y <- t(rmultinom(n, 1, class_prob))
       
-      result_bayes <- bayes_split_cp(Y, K, alpha, error_prob)
-      result_dta <- dta_split_cp(Y, K, error_prob)
+      result_bayes <- bayes_full_cp(Y, K, alpha, error_prob)
+      result_dta <- dta_full_cp(Y, K, error_prob)
       
       bayes_prediction_sizes[K-2, sim_rep] <- nrow(result_bayes$prediction_set)
       dta_prediction_sizes[K-2, sim_rep] <- nrow(result_dta$prediction_set)
@@ -295,7 +274,7 @@ plot_prediction_set_sizes <- function(results, category_lim) {
   grid()
 }
 
-n <- 60 # Number of observations in calibration data
+n <- 50 # Number of observations in calibration data
 epsilon <- 0.05 # User-specified error probability
 category_lim <- 20
 
@@ -315,10 +294,10 @@ create_skewed_alpha <- function(K, skew_ratio) {
   high_indices <- sample(1:K, high_count)
   
   # Assign values
-  #alpha[high_indices] <- skew_ratio/denominator
-  #alpha[-high_indices] <- 1/denominator
-  alpha[high_indices] <- 1
-  alpha[-high_indices] <- skew_ratio
+  alpha[high_indices] <- skew_ratio/denominator
+  alpha[-high_indices] <- 1/denominator
+  #alpha[high_indices] <- skew_ratio
+  #alpha[-high_indices] <- 1
   
   return(alpha)
 }
@@ -339,8 +318,8 @@ compare_skewed_prior <- function(category_lim, error_prob, n, skew_ratio) {
       Y <- t(rmultinom(n, 1, class_prob))
       
       assumed_alpha <- true_alpha
-      result_bayes <- bayes_split_cp(Y, K, assumed_alpha, error_prob)
-      result_dta <- dta_split_cp(Y, K, error_prob)
+      result_bayes <- bayes_full_cp(Y, K, assumed_alpha, error_prob)
+      result_dta <- dta_full_cp(Y, K, error_prob)
       
       bayes_prediction_sizes[K-2, sim_rep] <- nrow(result_bayes$prediction_set)
       dta_prediction_sizes[K-2, sim_rep] <- nrow(result_dta$prediction_set)
@@ -353,10 +332,10 @@ compare_skewed_prior <- function(category_lim, error_prob, n, skew_ratio) {
 }
 
 
-n <- 100 # Number of observations in calibration data
+n <- 50 # Number of observations in calibration data
 epsilon <- 0.1 # User-specified error probability
-category_lim <- 50
+category_lim <- 20
 
 # Run the simulation
-compare_results <- compare_skewed_prior(category_lim, error_prob = epsilon, n, 20)
+compare_results <- compare_skewed_prior(category_lim, error_prob = epsilon, n, 4)
 plot_prediction_set_sizes(compare_results, category_lim)
